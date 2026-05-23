@@ -3,12 +3,13 @@ import os
 import json
 from datetime import datetime, time
 import pytz
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
     ConversationHandler,
+    CallbackQueryHandler,
     ContextTypes,
     filters,
 )
@@ -530,34 +531,62 @@ async def profil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ─── ADMIN ────────────────────────────────────────────────────────────────────
-def admin_keyboard():
+def admin_inline_keyboard():
     kb = [
-        ["👥 Ro'yxat", "❌ Topshirmaganlar"],
-        ["📊 Statistika", "🌆 Bugungi faktlar"],
+        [
+            InlineKeyboardButton("👥 Ro'yxat", callback_data="admin_royxat"),
+            InlineKeyboardButton("❌ Topshirmaganlar", callback_data="admin_topshirmaganlar"),
+        ],
+        [
+            InlineKeyboardButton("📊 Statistika", callback_data="admin_statistika"),
+            InlineKeyboardButton("🌆 Bugungi faktlar", callback_data="admin_faktlar"),
+        ],
     ]
-    return ReplyKeyboardMarkup(kb, resize_keyboard=True)
+    return InlineKeyboardMarkup(kb)
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text("❌ Sizda bu buyruqqa ruxsat yo'q.")
         return
-    await update.message.reply_text(
-        "👑 Admin panel\n\nQuyidagi bo'limlardan birini tanlang:",
-        reply_markup=admin_keyboard()
+    today = datetime.now(UZ_TZ).strftime("%d.%m.%Y")
+    all_users = context.bot_data.get("all_users", {})
+    text = (
+        '👑 Salom, Admin!\n\n'
+        '📅 Bugun: ' + today + '\n'
+        '👥 Jami foydalanuvchilar: ' + str(len(all_users)) + ' ta\n\n'
+        "Quyidagi bo'limlardan birini tanlang:"
     )
+    await update.message.reply_text(text, reply_markup=admin_inline_keyboard())
 
-async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
+async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.from_user.id != ADMIN_ID:
+        await query.answer("❌ Ruxsat yo'q.")
         return
-    txt = update.message.text
-    if txt == "👥 Ro'yxat":
-        await cmd_royxat(update, context)
-    elif txt == "❌ Topshirmaganlar":
-        await cmd_topshirmaganlar(update, context)
-    elif txt == "📊 Statistika":
-        await cmd_statistika(update, context)
-    elif txt == "🌆 Bugungi faktlar":
-        await cmd_bugungi_faktlar(update, context)
+    await query.answer()
+    data = query.data
+
+    # Fake update object for reuse
+    class FakeUpdate:
+        def __init__(self, message):
+            self.message = message
+            self.effective_user = query.from_user
+            self.callback_query = query
+
+    class FakeMessage:
+        async def reply_text(self, text, **kwargs):
+            await query.message.reply_text(text, **kwargs)
+
+    fake = FakeUpdate(FakeMessage())
+
+    if data == "admin_royxat":
+        await cmd_royxat(fake, context)
+    elif data == "admin_topshirmaganlar":
+        await cmd_topshirmaganlar(fake, context)
+    elif data == "admin_statistika":
+        await cmd_statistika(fake, context)
+    elif data == "admin_faktlar":
+        await cmd_bugungi_faktlar(fake, context)
 
 async def cmd_royxat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -692,10 +721,7 @@ def main():
     app.add_handler(kechki_handler)
     app.add_handler(CommandHandler("profil", profil))
     app.add_handler(CommandHandler("admin", admin_panel))
-    app.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND & filters.User(ADMIN_ID),
-        admin_handler
-    ))
+    app.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
 
     logger.info("Bot ishga tushdi!")
     app.run_polling()
