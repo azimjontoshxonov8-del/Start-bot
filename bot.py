@@ -14,7 +14,6 @@ from telegram.ext import (
 )
 import gspread
 from google.oauth2.service_account import Credentials
-from gspread.utils import rowcol_to_a1
 
 UZ_TZ = pytz.timezone("Asia/Tashkent")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "BU_YERGA_TOKEN")
@@ -24,22 +23,18 @@ SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "1L4wpKTkFghanh55c2_tNVD7O3CvmphhDT
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ─── STATES ───────────────────────────────────────────────────────────────────
 (REG_ISM, REG_BIZNES_NOMI, REG_BIZNES_TURI, REG_A, REG_B, REG_METRIKALARI,
  DAILY_METRIKA, DAILY_REJA, DAILY_PLAN,
  EVE_FAKT, EVE_DAROMAD) = range(11)
 
-# ─── METRIKALAR ───────────────────────────────────────────────────────────────
 CHAKANA = ["Mehmonlar", "Xaridorlar", "O'rtacha chek", "Qayta sotuv (1 oyda)"]
 SERVICE  = ["SMM ko'rish", "Qo'ng'iroq", "Uchrashuv", "Xaridor", "O'rtacha chek"]
 DISTRIB  = ["OKB", "AKB", "O'rtacha chek", "Qayta sotuv (1 oyda)"]
-
 BIZNES_EMOJI = {"Chakana": "🛒", "Service": "🎓", "Distributsiya": "🚚"}
 
-# Ranglar (hex -> RGB tuple)
 COLORS = {
     "Chakana": {
-        "header_bg":  (0.02, 0.27, 0.36),   # teal dark
+        "header_bg":  (0.02, 0.27, 0.36),
         "header_fg":  (1, 1, 1),
         "label_bg":   (0.02, 0.27, 0.36),
         "meta_bg":    (0.68, 0.85, 0.90),
@@ -79,7 +74,6 @@ def rgb(r, g, b):
 def get_metrikalari(turi):
     return {"Chakana": CHAKANA, "Service": SERVICE, "Distributsiya": DISTRIB}.get(turi, CHAKANA)
 
-# ─── GOOGLE SHEETS ────────────────────────────────────────────────────────────
 def get_sheet():
     creds_json = os.getenv("GOOGLE_CREDENTIALS")
     if creds_json:
@@ -94,20 +88,15 @@ def get_sheet():
             "https://www.googleapis.com/auth/drive"])
     return gspread.authorize(creds).open_by_key(SPREADSHEET_ID)
 
-def create_user_tab(spreadsheet, profile: dict):
+def create_user_tab(spreadsheet, profile):
     turi = profile["biznes_turi"]
     metrikalari = get_metrikalari(turi)
     c = COLORS[turi]
     emoji = BIZNES_EMOJI[turi]
     tab_name = profile["tab_name"]
     saved = profile.get("saved_metrikalari", {})
-    ism = profile["ism"]
-    biznes_nomi = profile.get("biznes_nomi", "")
-    a_nuqta = profile["a_nuqta"]
-    b_nuqta = profile["b_nuqta"]
-    n = len(metrikalari)  # metrikalar soni
+    n = len(metrikalari)
 
-    # Tab yaratish
     try:
         ws = spreadsheet.worksheet(tab_name)
         spreadsheet.del_worksheet(ws)
@@ -115,39 +104,28 @@ def create_user_tab(spreadsheet, profile: dict):
         pass
     ws = spreadsheet.add_worksheet(title=tab_name, rows=200, cols=max(n+2, 8))
 
-    # ── 1-qator: Sarlavha ──
-    title_text = f"30 KUNLIK BIZNES O'SISH REJASI  |  {emoji} {turi.upper()}"
+    title_text = "30 KUNLIK BIZNES O'SISH REJASI  |  " + emoji + " " + turi.upper()
     ws.update("A1", [[title_text]])
-
-    # ── 2-qator: Tadbirkor / Biznes nomi / A nuqta / B nuqta ──
     ws.update("A2:H2", [[
-        "Tadbirkor:", ism,
-        "Biznes nomi:", biznes_nomi,
-        "A nuqtasi (hozir):", a_nuqta,
-        "B nuqtasi (maqsad):", b_nuqta
+        "Tadbirkor:", profile["ism"],
+        "Biznes nomi:", profile.get("biznes_nomi", ""),
+        "A nuqtasi (hozir):", profile["a_nuqta"],
+        "B nuqtasi (maqsad):", profile["b_nuqta"]
     ]])
 
-    # ── 3-qator: Metrika nomlari ──
-    row3 = ["HOZIRGI HOLAT (A)"] + [f"{m}" for m in metrikalari]
-    ws.update(f"A3", [row3[:n+1]])
+    row3 = ["HOZIRGI HOLAT (A)"] + list(metrikalari)
+    ws.update("A3", [row3[:n+1]])
 
-    # ── 4-qator: A nuqta qiymatlari ──
     row4 = ["A nuqta"] + [saved.get(m + "_a", "") for m in metrikalari]
-    ws.update(f"A4", [row4[:n+1]])
+    ws.update("A4", [row4[:n+1]])
 
-    # ── 5-qator: B nuqta qiymatlari ──
     row5 = ["B nuqta"] + [saved.get(m + "_b", "") for m in metrikalari]
-    ws.update(f"A5", [row5[:n+1]])
+    ws.update("A5", [row5[:n+1]])
 
-    # ── 7-qator: Kunlik sarlavhalar ──
     ws.update("A7:F7", [["Sana", "Qaysi metrikaga ta'sir qilmoqchi", "B nuqta uchun nima qiladi", "Plan", "Fakt", "Kunlik abarot/sof foyda"]])
 
-    # ── FORMATLAR ──
     last_col = max(n + 1, 6)
-    last_col_letter = chr(64 + last_col) if last_col <= 26 else "H"
-
     requests = [
-        # 1-qator merge va rang
         {"mergeCells": {"range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": 1,
             "startColumnIndex": 0, "endColumnIndex": last_col}, "mergeType": "MERGE_ALL"}},
         {"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": 1,
@@ -157,21 +135,12 @@ def create_user_tab(spreadsheet, profile: dict):
                 "textFormat": {"foregroundColor": rgb(*c["header_fg"]), "bold": True, "fontSize": 14},
                 "horizontalAlignment": "CENTER", "verticalAlignment": "MIDDLE"}},
             "fields": "userEnteredFormat"}},
-
-        # 2-qator: label bg
         {"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 1, "endRowIndex": 2,
             "startColumnIndex": 0, "endColumnIndex": last_col},
             "cell": {"userEnteredFormat": {
                 "backgroundColor": rgb(*c["meta_bg"]),
                 "textFormat": {"foregroundColor": rgb(*c["meta_fg"]), "bold": False}}},
             "fields": "userEnteredFormat"}},
-        # 2-qator label ustunlari bold
-        {"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 1, "endRowIndex": 2,
-            "startColumnIndex": 0, "endColumnIndex": 1},
-            "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
-            "fields": "userEnteredFormat.textFormat"}},
-
-        # 3-qator: header
         {"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 2, "endRowIndex": 3,
             "startColumnIndex": 0, "endColumnIndex": last_col},
             "cell": {"userEnteredFormat": {
@@ -179,21 +148,16 @@ def create_user_tab(spreadsheet, profile: dict):
                 "textFormat": {"foregroundColor": rgb(*c["header_fg"]), "bold": True},
                 "horizontalAlignment": "CENTER"}},
             "fields": "userEnteredFormat"}},
-
-        # 4-qator: A nuqta
         {"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 3, "endRowIndex": 4,
             "startColumnIndex": 0, "endColumnIndex": last_col},
             "cell": {"userEnteredFormat": {
                 "backgroundColor": rgb(*c["row_odd"]),
-                "textFormat": {"bold": False},
                 "horizontalAlignment": "CENTER"}},
             "fields": "userEnteredFormat"}},
         {"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 3, "endRowIndex": 4,
             "startColumnIndex": 0, "endColumnIndex": 1},
             "cell": {"userEnteredFormat": {"textFormat": {"bold": True}}},
             "fields": "userEnteredFormat.textFormat"}},
-
-        # 5-qator: B nuqta (yashil matn)
         {"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 4, "endRowIndex": 5,
             "startColumnIndex": 0, "endColumnIndex": last_col},
             "cell": {"userEnteredFormat": {
@@ -205,14 +169,10 @@ def create_user_tab(spreadsheet, profile: dict):
             "startColumnIndex": 0, "endColumnIndex": 1},
             "cell": {"userEnteredFormat": {"textFormat": {"foregroundColor": rgb(0,0,0), "bold": True}}},
             "fields": "userEnteredFormat.textFormat"}},
-
-        # 6-qator: bo'sh separator
         {"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 5, "endRowIndex": 6,
             "startColumnIndex": 0, "endColumnIndex": last_col},
             "cell": {"userEnteredFormat": {"backgroundColor": rgb(*c["header_bg"])}},
             "fields": "userEnteredFormat"}},
-
-        # 7-qator: kunlik sarlavha
         {"repeatCell": {"range": {"sheetId": ws.id, "startRowIndex": 6, "endRowIndex": 7,
             "startColumnIndex": 0, "endColumnIndex": 6},
             "cell": {"userEnteredFormat": {
@@ -220,29 +180,16 @@ def create_user_tab(spreadsheet, profile: dict):
                 "textFormat": {"foregroundColor": rgb(*c["header_fg"]), "bold": True},
                 "horizontalAlignment": "CENTER", "wrapStrategy": "WRAP"}},
             "fields": "userEnteredFormat"}},
-
-        # 1-qator balandligi
         {"updateDimensionProperties": {"range": {"sheetId": ws.id, "dimension": "ROWS",
             "startIndex": 0, "endIndex": 1},
             "properties": {"pixelSize": 50}, "fields": "pixelSize"}},
-        # 7-qator balandligi
         {"updateDimensionProperties": {"range": {"sheetId": ws.id, "dimension": "ROWS",
             "startIndex": 6, "endIndex": 7},
             "properties": {"pixelSize": 50}, "fields": "pixelSize"}},
-
-        # A ustun kengligi
         {"updateDimensionProperties": {"range": {"sheetId": ws.id, "dimension": "COLUMNS",
             "startIndex": 0, "endIndex": 1},
             "properties": {"pixelSize": 140}, "fields": "pixelSize"}},
-
-        # Chegara chiziqlar (7-qator)
-        {"updateBorders": {"range": {"sheetId": ws.id, "startRowIndex": 6, "endRowIndex": 7,
-            "startColumnIndex": 0, "endColumnIndex": 6},
-            "innerVertical": {"style": "SOLID", "color": rgb(1,1,1), "width": 1},
-            "bottom": {"style": "SOLID", "color": rgb(1,1,1), "width": 1}}},
     ]
-
-    # Kunlik qatorlar uchun ranglar (8-37 qatorlar)
     for i in range(30):
         row_i = 7 + i
         bg = c["daily_odd"] if i % 2 == 0 else c["daily_even"]
@@ -251,31 +198,25 @@ def create_user_tab(spreadsheet, profile: dict):
                 "startColumnIndex": 0, "endColumnIndex": 6},
                 "cell": {"userEnteredFormat": {"backgroundColor": rgb(*bg)}},
                 "fields": "userEnteredFormat"}})
-
     spreadsheet.batch_update({"requests": requests})
     return ws
 
-def save_registration(profile: dict):
+def save_registration(profile):
     spreadsheet = get_sheet()
-
-    # Ro'yxat tab
     try:
         ws_reg = spreadsheet.worksheet("Ro'yxat")
     except:
         ws_reg = spreadsheet.add_worksheet(title="Ro'yxat", rows=200, cols=10)
         ws_reg.update("A1:E1", [["Ism Familiya", "Biznes nomi", "Biznes turi", "A nuqta", "B nuqta"]])
         ws_reg.format("A1:E1", {"textFormat": {"bold": True}})
-
     all_vals = ws_reg.get_all_values()
-    ws_reg.update(f"A{len(all_vals)+1}:E{len(all_vals)+1}", [[
-        profile["ism"], profile.get("biznes_nomi",""),
-        profile["biznes_turi"], profile["a_nuqta"], profile["b_nuqta"]
-    ]])
-
-    # Foydalanuvchi tab yaratish
+    ws_reg.update(
+        "A" + str(len(all_vals)+1) + ":E" + str(len(all_vals)+1),
+        [[profile["ism"], profile.get("biznes_nomi",""), profile["biznes_turi"], profile["a_nuqta"], profile["b_nuqta"]]]
+    )
     create_user_tab(spreadsheet, profile)
 
-def save_morning(tab_name: str, data: dict):
+def save_morning(tab_name, data):
     spreadsheet = get_sheet()
     ws = spreadsheet.worksheet(tab_name)
     all_vals = ws.get_all_values()
@@ -287,9 +228,10 @@ def save_morning(tab_name: str, data: dict):
             break
     if row_idx is None:
         row_idx = len(all_vals) + 1
-    ws.update(f"A{row_idx}:D{row_idx}", [[data["sana"], data["metrika"], data["reja"], data["plan"]]])
+    ws.update("A" + str(row_idx) + ":D" + str(row_idx),
+              [[data["sana"], data["metrika"], data["reja"], data["plan"]]])
 
-def save_evening(tab_name: str, data: dict):
+def save_evening(tab_name, data):
     spreadsheet = get_sheet()
     ws = spreadsheet.worksheet(tab_name)
     all_vals = ws.get_all_values()
@@ -301,14 +243,14 @@ def save_evening(tab_name: str, data: dict):
             break
     if row_idx is None:
         row_idx = len(all_vals) + 1
-    ws.update(f"E{row_idx}:F{row_idx}", [[data["fakt"], data["daromad"]]])
+    ws.update("E" + str(row_idx) + ":F" + str(row_idx), [[data["fakt"], data["daromad"]]])
 
-# ─── /start ───────────────────────────────────────────────────────────────────
+# ─── START ────────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     profile = context.user_data.get("profile", {})
     if profile.get("ism"):
         await update.message.reply_text(
-            f"👋 Salom, {profile['ism']}!\n\n"
+            "👋 Salom, " + profile["ism"] + "!\n\n"
             "/kunlik — ertalabki hisobot\n"
             "/kechki — kechki hisobot\n"
             "/profil — profilingiz"
@@ -364,8 +306,8 @@ async def reg_b(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["metrika_is_a"] = True
     context.user_data["profile"]["saved_metrikalari"] = {}
     await update.message.reply_text(
-        f"Endi {turi} biznesining hozirgi holatini aniqlaymiz.\n\n"
-        f"6️⃣ {metrikalari[0]} — A nuqtada qancha?"
+        "Endi " + turi + " biznesining hozirgi holatini aniqlaymiz.\n\n"
+        "6️⃣ " + metrikalari[0] + " — A nuqtada qancha?"
     )
     return REG_METRIKALARI
 
@@ -379,14 +321,14 @@ async def reg_metrikalari(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if is_a:
         context.user_data["metrika_is_a"] = False
-        await update.message.reply_text(f"{m} — B nuqtada qancha?")
+        await update.message.reply_text(m + " — B nuqtada qancha?")
         return REG_METRIKALARI
     else:
         next_idx = idx + 1
         if next_idx < len(metrikalari):
             context.user_data["metrika_idx"] = next_idx
             context.user_data["metrika_is_a"] = True
-            await update.message.reply_text(f"{metrikalari[next_idx]} — A nuqtada qancha?")
+            await update.message.reply_text(metrikalari[next_idx] + " — A nuqtada qancha?")
             return REG_METRIKALARI
         else:
             profile = context.user_data["profile"]
@@ -394,14 +336,11 @@ async def reg_metrikalari(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data["profile"]["tab_name"] = tab_name
             try:
                 save_registration(profile)
-                msg = "✅ Google Sheets ga chiroyli formatda saqlandi!"
             except Exception as e:
                 logger.error(e)
-                msg = f"⚠️ Sheets xatosi: {e}"
 
             schedule_reminders(context.application, update.effective_user.id, profile["ism"])
 
-            # bot_data ga saqlash (admin ko'rishi uchun)
             if "all_users" not in context.bot_data:
                 context.bot_data["all_users"] = {}
             context.bot_data["all_users"][update.effective_user.id] = {
@@ -411,15 +350,16 @@ async def reg_metrikalari(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "a_nuqta": profile["a_nuqta"],
                 "b_nuqta": profile["b_nuqta"],
                 "bugun": {},
+                "kechki": {},
             }
 
             await update.message.reply_text(
-                f"🎉 Ro'yxatdan muvaffaqiyatli o'tdingiz!\n\n"
-                f"👤 {profile['ism']}\n"
-                f"🏪 {profile.get('biznes_nomi','')} ({profile['biznes_turi']})\n"
-                f"📊 A nuqta: {profile['a_nuqta']}\n"
-                f"🎯 B nuqta: {profile['b_nuqta']}\n\n"
-                f"Har kuni ertalab soat 8:00 da savol keladi! 📅"
+                "🎉 Ro'yxatdan muvaffaqiyatli o'tdingiz!\n\n"
+                "👤 " + profile["ism"] + "\n"
+                "🏪 " + profile.get("biznes_nomi","") + " (" + profile["biznes_turi"] + ")\n"
+                "📊 A nuqta: " + profile["a_nuqta"] + "\n"
+                "🎯 B nuqta: " + profile["b_nuqta"] + "\n\n"
+                "Har kuni ertalab soat 8:00 da savol keladi! 📅"
             )
             return ConversationHandler.END
 
@@ -432,8 +372,9 @@ async def kunlik_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.now(UZ_TZ).strftime("%d.%m.%Y")
     context.user_data["daily_sana"] = today
     await update.message.reply_text(
-        f"🌅 Ertalabki hisobot\n📅 Bugun: {today}\n\n"
-        f"Qaysi metrikaga bugun ta'sir qilmoqchisiz?"
+        "🌅 Ertalabki hisobot\n"
+        "📅 Bugun: " + today + "\n\n"
+        "Qaysi metrikaga bugun ta'sir qilmoqchisiz?"
     )
     return DAILY_METRIKA
 
@@ -449,32 +390,31 @@ async def daily_reja(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def daily_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     profile = context.user_data.get("profile", {})
-    data = {
-        "sana": context.user_data.get("daily_sana", datetime.now(UZ_TZ).strftime("%d.%m.%Y")),
-        "metrika": context.user_data.get("daily_metrika", ""),
-        "reja": context.user_data.get("daily_reja", ""),
-        "plan": update.message.text.strip(),
-    }
-    # bot_data ga bugungi vazifani saqlash (admin ko'rishi uchun)
+    today = context.user_data.get("daily_sana", datetime.now(UZ_TZ).strftime("%d.%m.%Y"))
+    metrika = context.user_data.get("daily_metrika", "")
+    reja = context.user_data.get("daily_reja", "")
+    plan = update.message.text.strip()
+
     uid = update.effective_user.id
     if "all_users" not in context.bot_data:
         context.bot_data["all_users"] = {}
     if uid not in context.bot_data["all_users"]:
-        context.bot_data["all_users"][uid] = {"ism": profile.get("ism",""), "bugun": {}}
+        context.bot_data["all_users"][uid] = {"ism": profile.get("ism",""), "bugun": {}, "kechki": {}}
     context.bot_data["all_users"][uid]["bugun"] = {
-        "sana": data["sana"],
-        "metrika": data["metrika"],
-        "reja": data["reja"],
-        "plan": data["plan"],
+        "sana": today, "metrika": metrika, "reja": reja, "plan": plan,
     }
 
     try:
-        save_morning(profile["tab_name"], data)
+        save_morning(profile["tab_name"], {"sana": today, "metrika": metrika, "reja": reja, "plan": plan})
         msg = "✅ Saqlandi!"
     except Exception as e:
         logger.error(e)
         msg = "⚠️ Xato yuz berdi."
-    await update.message.reply_text(f"✅ Ertalabki hisobot qabul qilindi!\n\nKechqurun soat 8:00 da /kechki yuboring. 💪\n{msg}")
+
+    await update.message.reply_text(
+        "✅ Ertalabki hisobot qabul qilindi!\n\n"
+        "Kechqurun soat 8:00 da /kechki yuboring. 💪\n" + msg
+    )
     return ConversationHandler.END
 
 # ─── KECHKI ───────────────────────────────────────────────────────────────────
@@ -485,7 +425,10 @@ async def kechki_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     today = datetime.now(UZ_TZ).strftime("%d.%m.%Y")
     context.user_data["daily_sana"] = today
-    await update.message.reply_text(f"🌆 Kechki hisobot — {today}\n\n✅ Bugungi FAKT (raqamda):")
+    await update.message.reply_text(
+        "🌆 Kechki hisobot — " + today + "\n\n"
+        "✅ Bugungi FAKT (raqamda):"
+    )
     return EVE_FAKT
 
 async def eve_fakt(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -495,30 +438,29 @@ async def eve_fakt(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def eve_daromad(update: Update, context: ContextTypes.DEFAULT_TYPE):
     profile = context.user_data.get("profile", {})
-    data = {
-        "sana": context.user_data.get("daily_sana", datetime.now(UZ_TZ).strftime("%d.%m.%Y")),
-        "fakt": context.user_data.get("eve_fakt", ""),
-        "daromad": update.message.text.strip(),
-    }
-    # bot_data ga kechki hisobotni saqlash
+    today = context.user_data.get("daily_sana", datetime.now(UZ_TZ).strftime("%d.%m.%Y"))
+    fakt = context.user_data.get("eve_fakt", "")
+    daromad = update.message.text.strip()
+
     uid = update.effective_user.id
     if "all_users" not in context.bot_data:
         context.bot_data["all_users"] = {}
     if uid not in context.bot_data["all_users"]:
         context.bot_data["all_users"][uid] = {"ism": profile.get("ism",""), "bugun": {}, "kechki": {}}
     context.bot_data["all_users"][uid]["kechki"] = {
-        "sana": data["sana"],
-        "fakt": data["fakt"],
-        "daromad": data["daromad"],
+        "sana": today, "fakt": fakt, "daromad": daromad,
     }
 
     try:
-        save_evening(profile["tab_name"], data)
+        save_evening(profile["tab_name"], {"sana": today, "fakt": fakt, "daromad": daromad})
         msg = "✅ Saqlandi!"
     except Exception as e:
         logger.error(e)
         msg = "⚠️ Xato yuz berdi."
-    await update.message.reply_text(f"🎉 Bugungi hisobot to'liq saqlandi! Ertaga ham /kunlik kutamiz. 💪\n{msg}")
+
+    await update.message.reply_text(
+        "🎉 Bugungi hisobot to'liq saqlandi! Ertaga ham /kunlik kutamiz. 💪\n" + msg
+    )
     return ConversationHandler.END
 
 # ─── ESLATMALAR ───────────────────────────────────────────────────────────────
@@ -530,13 +472,13 @@ async def send_morning_reminder(context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=d["user_id"],
         text=(
-            f"🌅 Xayrli tong, {d['ism']}!\n\n"
-            f"📅 Bugun: {today}\n\n"
-            f"Ertalabki hisobotni to'ldirish vaqti keldi! 💪\n\n"
-            f"👇 /kunlik buyrug'ini bosing va ketma-ket savollarga javob bering:\n"
-            f"1️⃣ Qaysi metrikaga ta'sir qilmoqchisiz?\n"
-            f"2️⃣ B nuqtaga yetish uchun nima qilasiz?\n"
-            f"3️⃣ Bugungi plan (raqamda)"
+            "🌅 Xayrli tong, " + d["ism"] + "!\n\n"
+            "📅 Bugun: " + today + "\n\n"
+            "Ertalabki hisobotni to'ldirish vaqti keldi! 💪\n\n"
+            "👇 /kunlik buyrug'ini bosing va ketma-ket savollarga javob bering:\n"
+            "1️⃣ Qaysi metrikaga ta'sir qilmoqchisiz?\n"
+            "2️⃣ B nuqtaga yetish uchun nima qilasiz?\n"
+            "3️⃣ Bugungi plan (raqamda)"
         )
     )
 
@@ -548,38 +490,47 @@ async def send_evening_reminder(context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_message(
         chat_id=d["user_id"],
         text=(
-            f"🌆 Kechki hisobot vaqti, {d['ism']}!\n\n"
-            f"📅 Bugun: {today}\n\n"
-            f"👇 /kechki buyrug'ini bosing va ketma-ket savollarga javob bering:\n"
-            f"1️⃣ Bugungi fakt (haqiqatda nima bo'ldi, raqamda)\n"
-            f"2️⃣ Kunlik aylanma yoki sof foyda"
+            "🌆 Kechki hisobot vaqti, " + d["ism"] + "!\n\n"
+            "📅 Bugun: " + today + "\n\n"
+            "👇 /kechki buyrug'ini bosing va ketma-ket savollarga javob bering:\n"
+            "1️⃣ Bugungi fakt (haqiqatda nima bo'ldi, raqamda)\n"
+            "2️⃣ Kunlik aylanma yoki sof foyda"
         )
     )
 
-def schedule_reminders(app, user_id: int, ism: str):
+def schedule_reminders(app, user_id, ism):
     data = {"user_id": user_id, "ism": ism}
-    for name in [f"morning_{user_id}", f"evening_{user_id}"]:
+    for name in ["morning_" + str(user_id), "evening_" + str(user_id)]:
         for job in app.job_queue.get_jobs_by_name(name):
             job.schedule_removal()
-    app.job_queue.run_daily(send_morning_reminder, time=time(8, 0, tzinfo=UZ_TZ), name=f"morning_{user_id}", data=data)
-    app.job_queue.run_daily(send_evening_reminder, time=time(20, 0, tzinfo=UZ_TZ), name=f"evening_{user_id}", data=data)
+    app.job_queue.run_daily(
+        send_morning_reminder,
+        time=time(8, 0, tzinfo=UZ_TZ),
+        name="morning_" + str(user_id),
+        data=data
+    )
+    app.job_queue.run_daily(
+        send_evening_reminder,
+        time=time(20, 0, tzinfo=UZ_TZ),
+        name="evening_" + str(user_id),
+        data=data
+    )
 
-# ─── /profil ──────────────────────────────────────────────────────────────────
+# ─── PROFIL ───────────────────────────────────────────────────────────────────
 async def profil(update: Update, context: ContextTypes.DEFAULT_TYPE):
     p = context.user_data.get("profile", {})
     if not p.get("ism"):
         await update.message.reply_text("❌ Avval /start orqali ro'yxatdan o'ting.")
         return
     await update.message.reply_text(
-        f"👤 {p.get('ism')}\n"
-        f"🏪 {p.get('biznes_nomi','')} ({p.get('biznes_turi','')})\n"
-        f"📊 A nuqta: {p.get('a_nuqta')}\n"
-        f"🎯 B nuqta: {p.get('b_nuqta')}"
+        "👤 " + p.get("ism","") + "\n"
+        "🏪 " + p.get("biznes_nomi","") + " (" + p.get("biznes_turi","") + ")\n"
+        "📊 A nuqta: " + str(p.get("a_nuqta","")) + "\n"
+        "🎯 B nuqta: " + str(p.get("b_nuqta",""))
     )
 
-# ─── ADMIN PANEL ─────────────────────────────────────────────────────────────
+# ─── ADMIN ────────────────────────────────────────────────────────────────────
 def admin_keyboard():
-    from telegram import ReplyKeyboardMarkup
     kb = [
         ["👥 Ro'yxat", "❌ Topshirmaganlar"],
         ["📊 Statistika", "🌆 Bugungi faktlar"],
@@ -596,18 +547,16 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def admin_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin buttonlarini qayta ishlash"""
     if update.effective_user.id != ADMIN_ID:
         return
-    text = update.message.text
-
-    if text == "👥 Ro'yxat":
+    txt = update.message.text
+    if txt == "👥 Ro'yxat":
         await cmd_royxat(update, context)
-    elif text == "❌ Topshirmaganlar":
+    elif txt == "❌ Topshirmaganlar":
         await cmd_topshirmaganlar(update, context)
-    elif text == "📊 Statistika":
+    elif txt == "📊 Statistika":
         await cmd_statistika(update, context)
-    elif text == "🌆 Bugungi faktlar":
+    elif txt == "🌆 Bugungi faktlar":
         await cmd_bugungi_faktlar(update, context)
 
 async def cmd_royxat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -619,22 +568,20 @@ async def cmd_royxat(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📋 Hali hech kim ro'yxatdan o'tmagan.")
             return
         rows = all_vals[1:]
-        text = f"👥 Ishtirokchilar ro'yxati — {len(rows)} ta:\n\n"
+        text = "👥 Ishtirokchilar ro'yxati — " + str(len(rows)) + " ta:\n\n"
         for i, row in enumerate(rows, 1):
             ism         = row[0] if len(row) > 0 else "—"
             biznes_nomi = row[1] if len(row) > 1 else "—"
             biznes_turi = row[2] if len(row) > 2 else "—"
             a           = row[3] if len(row) > 3 else "—"
             b           = row[4] if len(row) > 4 else "—"
-            text += (
-                f"{i}. 👤 {ism}\n"
-                f"   🏪 {biznes_nomi} ({biznes_turi})\n"
-                f"   📊 A: {a}  →  🎯 B: {b}\n\n"
-            )
+            text += str(i) + ". 👤 " + ism + "\n"
+            text += "   🏪 " + biznes_nomi + " (" + biznes_turi + ")\n"
+            text += "   📊 A: " + a + "  →  🎯 B: " + b + "\n\n"
         await update.message.reply_text(text)
     except Exception as e:
         logger.error(e)
-        await update.message.reply_text(f"⚠️ Xato: {e}")
+        await update.message.reply_text("⚠️ Xato: " + str(e))
 
 async def cmd_topshirmaganlar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.now(UZ_TZ).strftime("%d.%m.%Y")
@@ -644,15 +591,14 @@ async def cmd_topshirmaganlar(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     topshirmaganlar = []
     for uid, udata in all_users.items():
-        bugun_data = udata.get("bugun", {})
-        if bugun_data.get("sana") != today:
+        if udata.get("bugun", {}).get("sana") != today:
             topshirmaganlar.append(udata.get("ism", "—"))
     if not topshirmaganlar:
-        await update.message.reply_text(f"✅ Bugun ({today}) hammasi hisobot topshirgan!")
+        await update.message.reply_text("✅ Bugun (" + today + ") hammasi hisobot topshirgan!")
         return
-    text = f"❌ Bugun ({today}) hisobot topshirmaganlar — {len(topshirmaganlar)} ta:\n\n"
+    text = "❌ Bugun (" + today + ") topshirmaganlar — " + str(len(topshirmaganlar)) + " ta:\n\n"
     for i, ism in enumerate(topshirmaganlar, 1):
-        text += f"{i}. 👤 {ism}\n"
+        text += str(i) + ". 👤 " + ism + "\n"
     await update.message.reply_text(text)
 
 async def cmd_statistika(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -666,23 +612,20 @@ async def cmd_statistika(update: Update, context: ContextTypes.DEFAULT_TYPE):
         distrib = sum(1 for r in rows if len(r) > 2 and r[2] == "Distributsiya")
         today = datetime.now(UZ_TZ).strftime("%d.%m.%Y")
         all_users = context.bot_data.get("all_users", {})
-        bugun_topshirdi = sum(
-            1 for u in all_users.values()
-            if u.get("bugun", {}).get("sana") == today
-        )
+        bugun_topshirdi = sum(1 for u in all_users.values() if u.get("bugun", {}).get("sana") == today)
         text = (
-            f"📊 Statistika\n\n"
-            f"👥 Jami ishtirokchilar: {len(rows)} ta\n\n"
-            f"🛒 Chakana: {chakana} ta\n"
-            f"🎓 Service: {service} ta\n"
-            f"🚚 Distributsiya: {distrib} ta\n\n"
-            f"📅 Bugun ({today}) hisobot topshirdi: {bugun_topshirdi} ta\n"
-            f"❌ Topshirmadi: {len(all_users) - bugun_topshirdi} ta"
+            "📊 Statistika\n\n"
+            "👥 Jami ishtirokchilar: " + str(len(rows)) + " ta\n\n"
+            "🛒 Chakana: " + str(chakana) + " ta\n"
+            "🎓 Service: " + str(service) + " ta\n"
+            "🚚 Distributsiya: " + str(distrib) + " ta\n\n"
+            "📅 Bugun (" + today + ") topshirdi: " + str(bugun_topshirdi) + " ta\n"
+            "❌ Topshirmadi: " + str(len(all_users) - bugun_topshirdi) + " ta"
         )
         await update.message.reply_text(text)
     except Exception as e:
         logger.error(e)
-        await update.message.reply_text(f"⚠️ Xato: {e}")
+        await update.message.reply_text("⚠️ Xato: " + str(e))
 
 async def cmd_bugungi_faktlar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = datetime.now(UZ_TZ).strftime("%d.%m.%Y")
@@ -690,54 +633,20 @@ async def cmd_bugungi_faktlar(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not all_users:
         await update.message.reply_text("📋 Hali hech kim ro'yxatdan o'tmagan.")
         return
-    text = f"🌆 Bugungi faktlar — {today}:\n\n"
+    text = "🌆 Bugungi faktlar — " + today + ":\n\n"
     topshirdi = 0
     for uid, udata in all_users.items():
         ism = udata.get("ism", "—")
         kechki = udata.get("kechki", {})
         if kechki.get("sana") == today:
             topshirdi += 1
-            fakt = kechki.get('fakt','—')
-            daromad = kechki.get('daromad','—')
-            text += f"✅ {ism}\n   📈 Fakt: {fakt}\n   💵 Daromad: {daromad}\n\n"
+            fakt = kechki.get("fakt", "—")
+            daromad = kechki.get("daromad", "—")
+            text += "✅ " + ism + "\n"
+            text += "   📈 Fakt: " + fakt + "\n"
+            text += "   💵 Daromad: " + daromad + "\n\n"
     if topshirdi == 0:
         text += "Hali hech kim kechki hisobot topshirmagan."
-    await update.message.reply_text(text)
-
-async def users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("❌ Ruxsat yo'q.")
-        return
-    await cmd_royxat(update, context)
-
-async def bugun(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin: bugungi barcha ishtirokchilarning vazifalari"""
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("❌ Sizda bu buyruqqa ruxsat yo'q.")
-        return
-    today = datetime.now(UZ_TZ).strftime("%d.%m.%Y")
-    all_users = context.bot_data.get("all_users", {})
-    if not all_users:
-        await update.message.reply_text("📋 Hali hech kim bugun hisobot to'ldirmagan.")
-        return
-    text = f"📅 {today} — Bugungi hisobotlar:\n\n"
-    topshirdi = 0
-    topshirmadi_list = []
-    for uid, udata in all_users.items():
-        ism = udata.get("ism", "—")
-        bugun_data = udata.get("bugun", {})
-        if bugun_data.get("sana") == today:
-            topshirdi += 1
-            m = bugun_data.get('metrika','—')
-            r = bugun_data.get('reja','—')
-            p = bugun_data.get('plan','—')
-            text += f"✅ {ism}\n   📊 Metrika: {m}\n   📝 Reja: {r}\n   🎯 Plan: {p}\n\n"
-        else:
-            topshirmadi_list.append(ism)
-    if topshirmadi_list:
-        text += f"❌ Hali to'ldirmagan ({len(topshirmadi_list)} ta):\n"
-        for ism in topshirmadi_list:
-            text += f"   • {ism}\n"
     await update.message.reply_text(text)
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -783,7 +692,6 @@ def main():
     app.add_handler(kechki_handler)
     app.add_handler(CommandHandler("profil", profil))
     app.add_handler(CommandHandler("admin", admin_panel))
-    app.add_handler(CommandHandler("users", users))
     app.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND & filters.User(ADMIN_ID),
         admin_handler
